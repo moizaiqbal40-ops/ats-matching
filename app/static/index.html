@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ATS — Resume Matching</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 24px;
+    background: #f7f7f9;
+    color: #1a1a1a;
+  }
+  h1 { font-size: 22px; }
+  h2 { font-size: 17px; margin-top: 32px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+  .card {
+    background: white;
+    border: 1px solid #e2e2e5;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; margin: 8px 0 4px; color: #444; }
+  input, select, textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  textarea { min-height: 80px; }
+  button {
+    margin-top: 12px;
+    padding: 9px 16px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button.secondary { background: #6b7280; }
+  button.secondary:hover { background: #4b5563; }
+  .msg { margin-top: 10px; font-size: 13px; white-space: pre-wrap; }
+  .msg.ok { color: #15803d; }
+  .msg.err { color: #b91c1c; }
+  #whoami { font-size: 13px; color: #555; margin-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
+  th { color: #555; font-weight: 600; }
+  .score { font-weight: 600; }
+  .tag { display: inline-block; background: #eef2ff; color: #3730a3; padding: 2px 7px; border-radius: 10px; font-size: 11px; margin: 2px; }
+  .tag.missing { background: #fef2f2; color: #991b1b; }
+</style>
+</head>
+<body>
+
+<h1>📄 ATS — Resume Matching</h1>
+<div id="whoami">Not logged in</div>
+
+<div class="card">
+  <h2 style="margin-top:0; border:none;">Sign up</h2>
+  <label>Full name</label>
+  <input id="su-name" placeholder="Ayesha Malik">
+  <label>Email</label>
+  <input id="su-email" placeholder="ayesha@example.com">
+  <label>Password</label>
+  <input id="su-password" type="password">
+  <label><input type="checkbox" id="su-recruiter" style="width:auto; display:inline;"> I'm a recruiter</label>
+  <button onclick="signup()">Sign up</button>
+  <div class="msg" id="su-msg"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0; border:none;">Log in</h2>
+  <label>Email</label>
+  <input id="li-email" placeholder="ayesha@example.com">
+  <label>Password</label>
+  <input id="li-password" type="password">
+  <button onclick="login()">Log in</button>
+  <button class="secondary" onclick="logout()">Log out</button>
+  <div class="msg" id="li-msg"></div>
+</div>
+
+<h2>Post a job <span style="font-weight:normal; font-size:13px; color:#888;">(recruiters only)</span></h2>
+<div class="card">
+  <label>Title</label>
+  <input id="job-title" placeholder="Backend Engineer">
+  <label>Description</label>
+  <textarea id="job-desc" placeholder="We're looking for a backend engineer skilled in Python, SQL, and REST API design..."></textarea>
+  <label>Required skills (comma separated)</label>
+  <input id="job-skills" placeholder="python, sql, rest api">
+  <label>Minimum years of experience</label>
+  <input id="job-years" type="number" value="0">
+  <button onclick="createJob()">Post job</button>
+  <div class="msg" id="job-msg"></div>
+</div>
+
+<h2>Upload your resume <span style="font-weight:normal; font-size:13px; color:#888;">(candidates only, PDF or DOCX)</span></h2>
+<div class="card">
+  <input type="file" id="resume-file" accept=".pdf,.docx">
+  <button onclick="uploadResume()">Upload &amp; parse</button>
+  <div class="msg" id="resume-msg"></div>
+</div>
+
+<h2>Apply to a job</h2>
+<div class="card">
+  <label>Job</label>
+  <select id="apply-job"></select>
+  <label>Your resume</label>
+  <select id="apply-resume"></select>
+  <button onclick="applyToJob()">Apply</button>
+  <div class="msg" id="apply-msg"></div>
+</div>
+
+<h2>Jobs</h2>
+<button onclick="loadJobs()">Refresh jobs</button>
+<div id="jobs-list"></div>
+
+<h2>Ranked candidates <span style="font-weight:normal; font-size:13px; color:#888;">(recruiters only — view for your own job)</span></h2>
+<div class="card">
+  <label>Job</label>
+  <select id="rank-job"></select>
+  <button onclick="loadRanked()">View ranked candidates</button>
+  <div id="ranked-table"></div>
+</div>
+
+<script>
+const API = "";
+function token() { return localStorage.getItem("token"); }
+function setMsg(id, text, ok) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "err");
+}
+function authHeaders() {
+  return token() ? { "Authorization": "Bearer " + token() } : {};
+}
+function updateWhoami() {
+  document.getElementById("whoami").textContent = token() ? "Logged in ✅" : "Not logged in";
+}
+function logout() {
+  localStorage.removeItem("token");
+  updateWhoami();
+}
+
+async function signup() {
+  const body = {
+    full_name: document.getElementById("su-name").value,
+    email: document.getElementById("su-email").value,
+    password: document.getElementById("su-password").value,
+    is_recruiter: document.getElementById("su-recruiter").checked,
+  };
+  const res = await fetch(`${API}/auth/signup`, {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  setMsg("su-msg", res.ok ? "Account created! Now log in below." : (data.detail || "Signup failed"), res.ok);
+}
+
+async function login() {
+  const email = document.getElementById("li-email").value;
+  const password = document.getElementById("li-password").value;
+  const res = await fetch(`${API}/auth/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`, {
+    method: "POST"
+  });
+  const data = await res.json();
+  if (res.ok) {
+    localStorage.setItem("token", data.access_token);
+    setMsg("li-msg", "Logged in!", true);
+    updateWhoami();
+    loadJobs();
+    loadMyResumes();
+  } else {
+    setMsg("li-msg", data.detail || "Login failed", false);
+  }
+}
+
+async function createJob() {
+  const body = {
+    title: document.getElementById("job-title").value,
+    description: document.getElementById("job-desc").value,
+    required_skills: document.getElementById("job-skills").value.split(",").map(s => s.trim()).filter(Boolean),
+    min_years_experience: parseInt(document.getElementById("job-years").value) || 0,
+  };
+  const res = await fetch(`${API}/jobs`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", ...authHeaders()},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  setMsg("job-msg", res.ok ? `Posted "${data.title}"` : (data.detail || "Failed"), res.ok);
+  if (res.ok) loadJobs();
+}
+
+async function uploadResume() {
+  const fileInput = document.getElementById("resume-file");
+  if (!fileInput.files.length) { setMsg("resume-msg", "Choose a file first", false); return; }
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+  const res = await fetch(`${API}/resumes/upload`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData
+  });
+  const data = await res.json();
+  setMsg("resume-msg", res.ok
+    ? `Parsed! Found skills: ${data.extracted_skills.join(", ") || "none"} — ${data.years_experience} yrs experience`
+    : (data.detail || "Upload failed"), res.ok);
+  if (res.ok) loadMyResumes();
+}
+
+async function applyToJob() {
+  const body = {
+    job_id: document.getElementById("apply-job").value,
+    resume_id: document.getElementById("apply-resume").value,
+  };
+  const res = await fetch(`${API}/applications`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json", ...authHeaders()},
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  setMsg("apply-msg", res.ok
+    ? `Applied! Match score: ${(data.final_score * 100).toFixed(1)}%`
+    : (data.detail || "Apply failed"), res.ok);
+}
+
+async function loadMyResumes() {
+  if (!token()) return;
+  const res = await fetch(`${API}/resumes/mine`, { headers: authHeaders() });
+  if (!res.ok) return;
+  const resumes = await res.json();
+  document.getElementById("apply-resume").innerHTML =
+    resumes.map(r => `<option value="${r.id}">${r.filename} (${r.years_experience} yrs)</option>`).join("");
+}
+
+async function loadJobs() {
+  const res = await fetch(`${API}/jobs`);
+  const jobs = await res.json();
+
+  ["apply-job", "rank-job"].forEach(id => {
+    document.getElementById(id).innerHTML =
+      jobs.map(j => `<option value="${j.id}">${j.title}</option>`).join("");
+  });
+
+  document.getElementById("jobs-list").innerHTML = jobs.map(j => `
+    <div class="card">
+      <strong>${j.title}</strong> — min ${j.min_years_experience} yrs
+      <p style="font-size:13px; color:#555;">${j.description}</p>
+      <div>${j.required_skills.map(s => `<span class="tag">${s}</span>`).join("")}</div>
+    </div>
+  `).join("") || "<p style='color:#888;'>No jobs yet — post one above.</p>";
+}
+
+async function loadRanked() {
+  const jobId = document.getElementById("rank-job").value;
+  if (!jobId) return;
+  const res = await fetch(`${API}/applications/job/${jobId}/ranked`, { headers: authHeaders() });
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById("ranked-table").innerHTML = `<div class="msg err">${data.detail || "Failed to load"}</div>`;
+    return;
+  }
+  if (!data.length) {
+    document.getElementById("ranked-table").innerHTML = "<p style='color:#888;'>No applicants yet.</p>";
+    return;
+  }
+  document.getElementById("ranked-table").innerHTML = `
+    <table>
+      <tr><th>Score</th><th>Skills matched</th><th>Missing</th><th>Skill overlap</th><th>Semantic</th><th>Experience</th></tr>
+      ${data.map(a => `
+        <tr>
+          <td class="score">${(a.final_score * 100).toFixed(1)}%</td>
+          <td>${a.matched_skills.map(s => `<span class="tag">${s}</span>`).join("") || "—"}</td>
+          <td>${a.missing_skills.map(s => `<span class="tag missing">${s}</span>`).join("") || "—"}</td>
+          <td>${(a.skill_overlap_score * 100).toFixed(0)}%</td>
+          <td>${(a.semantic_similarity_score * 100).toFixed(0)}%</td>
+          <td>${(a.experience_score * 100).toFixed(0)}%</td>
+        </tr>
+      `).join("")}
+    </table>
+  `;
+}
+
+updateWhoami();
+loadJobs();
+loadMyResumes();
+</script>
+</body>
+</html>
